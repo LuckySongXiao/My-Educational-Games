@@ -1,0 +1,1391 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>拼音消字闯关</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&family=Noto+Sans+SC:wght@300;400;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <style>
+        :root {
+            --bg: #0c1118;
+            --bg2: #141c28;
+            --fg: #f0e6d3;
+            --muted: #7a7062;
+            --accent: #c93545;
+            --accent2: #d4a745;
+            --card: rgba(20, 28, 40, 0.85);
+            --border: rgba(212, 167, 69, 0.2);
+            --success: #2ecc71;
+            --fail: #e74c3c;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Noto Sans SC', sans-serif;
+            background: var(--bg);
+            color: var(--fg);
+            overflow: hidden;
+            height: 100vh;
+            width: 100vw;
+        }
+        .font-brush { font-family: 'Ma Shan Zheng', cursive; }
+
+        /* 背景Canvas */
+        #bg-canvas {
+            position: fixed; top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: 0; pointer-events: none;
+        }
+
+        /* 主容器 */
+        .game-container {
+            position: relative; z-index: 1;
+            width: 100%; height: 100vh;
+            display: flex; flex-direction: column;
+        }
+
+        /* 顶部状态栏 */
+        .top-bar {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 12px 24px;
+            background: linear-gradient(180deg, rgba(12,17,24,0.95) 0%, rgba(12,17,24,0.6) 100%);
+            border-bottom: 1px solid var(--border);
+        }
+        .stat-item {
+            display: flex; align-items: center; gap: 6px;
+            font-size: 15px; font-weight: 700;
+        }
+        .stat-item i { color: var(--accent2); }
+        .stat-value {
+            color: var(--accent2);
+            font-size: 20px;
+            min-width: 28px;
+            text-align: center;
+            transition: transform 0.3s, color 0.3s;
+        }
+        .stat-value.bump {
+            transform: scale(1.4);
+            color: var(--accent);
+        }
+
+        /* 游戏区域 */
+        #game-area {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+            background:
+                radial-gradient(ellipse at 50% 100%, rgba(201,53,69,0.06) 0%, transparent 60%),
+                radial-gradient(ellipse at 20% 0%, rgba(212,167,69,0.04) 0%, transparent 50%);
+        }
+        /* 地面线 */
+        .ground-line {
+            position: absolute; bottom: 0; left: 0; right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, transparent, var(--accent), var(--accent2), var(--accent), transparent);
+            opacity: 0.6;
+        }
+
+        /* 下落汉字 */
+        .falling-char {
+            position: absolute;
+            width: 80px; height: 80px;
+            display: flex; align-items: center; justify-content: center;
+            font-family: 'Ma Shan Zheng', cursive;
+            font-size: 48px;
+            color: var(--fg);
+            background: radial-gradient(circle, rgba(201,53,69,0.15) 0%, transparent 70%);
+            border-radius: 12px;
+            cursor: pointer;
+            user-select: none;
+            transition: box-shadow 0.2s, transform 0.15s;
+            text-shadow: 0 0 20px rgba(201,53,69,0.3);
+            z-index: 10;
+        }
+        .falling-char:hover {
+            transform: scale(1.1);
+            box-shadow: 0 0 30px rgba(201,53,69,0.4);
+            background: radial-gradient(circle, rgba(201,53,69,0.3) 0%, transparent 70%);
+        }
+        .falling-char.pulsing {
+            animation: charPulse 0.6s ease-in-out infinite;
+        }
+        @keyframes charPulse {
+            0%, 100% { text-shadow: 0 0 20px rgba(201,53,69,0.3); }
+            50% { text-shadow: 0 0 40px rgba(201,53,69,0.7), 0 0 60px rgba(212,167,69,0.3); }
+        }
+
+        /* 记忆卡片 */
+        .memo-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 14px;
+            max-width: 700px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .memo-card {
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            padding: 14px 8px;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            backdrop-filter: blur(8px);
+            opacity: 0;
+            transform: translateY(20px);
+            transition: opacity 0.4s, transform 0.4s;
+        }
+        .memo-card.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        .memo-card .pinyin {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--accent2);
+            margin-bottom: 6px;
+            letter-spacing: 1px;
+        }
+        .memo-card .hanzi {
+            font-family: 'Ma Shan Zheng', cursive;
+            font-size: 42px;
+            color: var(--fg);
+            line-height: 1;
+        }
+
+        /* 倒计时进度条 */
+        .timer-bar-wrap {
+            width: 100%; max-width: 500px;
+            height: 6px;
+            background: rgba(255,255,255,0.08);
+            border-radius: 3px;
+            margin: 16px auto 0;
+            overflow: hidden;
+        }
+        .timer-bar {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent), var(--accent2));
+            border-radius: 3px;
+            transition: width 0.1s linear;
+        }
+
+        /* 弹窗遮罩 */
+        .modal-overlay {
+            position: fixed; top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(0,0,0,0.6);
+            backdrop-filter: blur(4px);
+            z-index: 100;
+            display: none;
+            align-items: center; justify-content: center;
+        }
+        .modal-overlay.active { display: flex; }
+
+        .modal-box {
+            background: linear-gradient(135deg, #1a2332 0%, #0f1720 100%);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 32px;
+            min-width: 340px;
+            max-width: 420px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5), 0 0 40px rgba(201,53,69,0.1);
+            animation: modalIn 0.3s ease-out;
+        }
+        @keyframes modalIn {
+            from { opacity: 0; transform: scale(0.9) translateY(20px); }
+            to { opacity: 1; transform: scale(1) translateY(0); }
+        }
+
+        .modal-title {
+            font-family: 'Ma Shan Zheng', cursive;
+            font-size: 36px;
+            text-align: center;
+            margin-bottom: 20px;
+            color: var(--fg);
+        }
+
+        .pinyin-input {
+            width: 100%;
+            padding: 12px 16px;
+            font-size: 22px;
+            font-weight: 700;
+            text-align: center;
+            letter-spacing: 2px;
+            background: rgba(255,255,255,0.06);
+            border: 2px solid var(--border);
+            border-radius: 12px;
+            color: var(--fg);
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        .pinyin-input:focus {
+            border-color: var(--accent2);
+        }
+        .pinyin-input::placeholder {
+            color: var(--muted);
+            font-weight: 400;
+        }
+
+        .tone-buttons {
+            display: flex; gap: 10px;
+            justify-content: center;
+            margin-top: 16px;
+        }
+        .tone-btn {
+            width: 52px; height: 52px;
+            border-radius: 12px;
+            border: 2px solid var(--border);
+            background: rgba(255,255,255,0.04);
+            color: var(--fg);
+            font-size: 20px;
+            font-weight: 900;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            line-height: 1;
+        }
+        .tone-btn .tone-num { font-size: 18px; font-weight: 900; }
+        .tone-btn .tone-mark { font-size: 11px; color: var(--muted); margin-top: 2px; }
+        .tone-btn:hover {
+            border-color: var(--accent2);
+            background: rgba(212,167,69,0.12);
+        }
+        .tone-btn.selected {
+            border-color: var(--accent2);
+            background: rgba(212,167,69,0.2);
+            color: var(--accent2);
+            box-shadow: 0 0 16px rgba(212,167,69,0.2);
+        }
+
+        .modal-actions {
+            display: flex; gap: 12px;
+            margin-top: 24px;
+        }
+        .btn {
+            flex: 1;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: 'Noto Sans SC', sans-serif;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent) 0%, #a02a36 100%);
+            color: #fff;
+        }
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(201,53,69,0.4);
+        }
+        .btn-secondary {
+            background: rgba(255,255,255,0.06);
+            color: var(--fg);
+            border: 1px solid var(--border);
+        }
+        .btn-secondary:hover {
+            background: rgba(255,255,255,0.1);
+        }
+        .btn-gold {
+            background: linear-gradient(135deg, var(--accent2) 0%, #b08930 100%);
+            color: #1a1a1a;
+        }
+        .btn-gold:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(212,167,69,0.4);
+        }
+
+        /* Toast提示 */
+        .toast {
+            position: fixed;
+            top: 80px; left: 50%;
+            transform: translateX(-50%) translateY(-20px);
+            padding: 10px 28px;
+            border-radius: 12px;
+            font-size: 18px;
+            font-weight: 700;
+            z-index: 200;
+            opacity: 0;
+            transition: all 0.3s ease;
+            pointer-events: none;
+        }
+        .toast.show {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+        .toast.success {
+            background: rgba(46,204,113,0.15);
+            border: 1px solid rgba(46,204,113,0.4);
+            color: var(--success);
+        }
+        .toast.error {
+            background: rgba(231,76,60,0.15);
+            border: 1px solid rgba(231,76,60,0.4);
+            color: var(--fail);
+        }
+        .toast.info {
+            background: rgba(212,167,69,0.15);
+            border: 1px solid rgba(212,167,69,0.4);
+            color: var(--accent2);
+        }
+
+        /* 开始页面 */
+        .start-screen {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 50;
+            background: radial-gradient(ellipse at 50% 40%, rgba(201,53,69,0.08) 0%, transparent 60%);
+        }
+        .start-title {
+            font-family: 'Ma Shan Zheng', cursive;
+            font-size: clamp(56px, 10vw, 96px);
+            color: var(--fg);
+            line-height: 1.1;
+            text-shadow: 0 0 40px rgba(201,53,69,0.2);
+        }
+        .start-subtitle {
+            font-family: 'Ma Shan Zheng', cursive;
+            font-size: clamp(24px, 4vw, 36px);
+            color: var(--accent2);
+            margin-top: 4px;
+            letter-spacing: 8px;
+        }
+        .start-desc {
+            max-width: 480px;
+            text-align: center;
+            margin-top: 28px;
+            color: var(--muted);
+            font-size: 14px;
+            line-height: 1.8;
+        }
+        .start-buttons {
+            display: flex; gap: 16px;
+            margin-top: 40px;
+        }
+
+        /* 记忆阶段覆盖 */
+        .memorize-screen {
+            position: absolute;
+            inset: 0;
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 30;
+            padding: 20px;
+        }
+        .memorize-screen.active { display: flex; }
+
+        .memo-phase-label {
+            font-family: 'Ma Shan Zheng', cursive;
+            font-size: 28px;
+            color: var(--accent2);
+            margin-bottom: 4px;
+        }
+        .memo-countdown {
+            font-size: 48px;
+            font-weight: 900;
+            color: var(--accent);
+            margin-bottom: 8px;
+        }
+
+        /* 结果页面 */
+        .result-screen {
+            position: absolute;
+            inset: 0;
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 50;
+            background: rgba(12,17,24,0.92);
+            backdrop-filter: blur(8px);
+        }
+        .result-screen.active { display: flex; }
+
+        .result-icon {
+            font-size: 72px;
+            margin-bottom: 20px;
+        }
+        .result-title {
+            font-family: 'Ma Shan Zheng', cursive;
+            font-size: 48px;
+            margin-bottom: 8px;
+        }
+        .result-stats {
+            display: flex; gap: 32px;
+            margin: 20px 0;
+        }
+        .result-stat {
+            text-align: center;
+        }
+        .result-stat-value {
+            font-size: 36px;
+            font-weight: 900;
+            color: var(--accent2);
+        }
+        .result-stat-label {
+            font-size: 13px;
+            color: var(--muted);
+            margin-top: 4px;
+        }
+
+        /* 记录弹窗 */
+        .records-list {
+            max-height: 320px;
+            overflow-y: auto;
+            margin-top: 16px;
+        }
+        .records-list::-webkit-scrollbar {
+            width: 4px;
+        }
+        .records-list::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 2px;
+        }
+        .record-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 12px;
+            border-bottom: 1px solid rgba(255,255,255,0.04);
+            font-size: 13px;
+        }
+        .record-row:last-child { border-bottom: none; }
+        .record-ip { color: var(--muted); font-family: monospace; }
+        .record-score { font-weight: 700; color: var(--accent2); }
+        .record-level { color: var(--fg); }
+        .record-time { color: var(--muted); font-size: 12px; }
+
+        /* 底部提示 */
+        .hint-bar {
+            position: absolute;
+            bottom: 20px; left: 50%;
+            transform: translateX(-50%);
+            font-size: 14px;
+            color: var(--muted);
+            z-index: 15;
+            pointer-events: none;
+            animation: hintFade 2s ease-in-out infinite;
+        }
+        @keyframes hintFade {
+            0%, 100% { opacity: 0.4; }
+            50% { opacity: 0.8; }
+        }
+
+        /* 爆裂粒子效果 */
+        .burst-particle {
+            position: absolute;
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 20;
+        }
+
+        /* 关卡通过动画 */
+        .level-pass-overlay {
+            position: absolute;
+            inset: 0;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 40;
+            background: rgba(12,17,24,0.7);
+            backdrop-filter: blur(4px);
+        }
+        .level-pass-overlay.active { display: flex; }
+        .level-pass-text {
+            font-family: 'Ma Shan Zheng', cursive;
+            font-size: 64px;
+            color: var(--accent2);
+            animation: passBounce 0.6s ease-out;
+        }
+        @keyframes passBounce {
+            0% { transform: scale(0.3); opacity: 0; }
+            60% { transform: scale(1.2); }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
+        /* 减少动画偏好 */
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.01ms !important;
+                transition-duration: 0.01ms !important;
+            }
+        }
+
+        @media (max-width: 640px) {
+            .memo-grid {
+                grid-template-columns: repeat(5, 1fr);
+                gap: 8px;
+                padding: 12px;
+            }
+            .memo-card { padding: 10px 4px; }
+            .memo-card .pinyin { font-size: 14px; }
+            .memo-card .hanzi { font-size: 32px; }
+            .modal-box { min-width: 300px; padding: 24px; }
+            .top-bar { padding: 8px 16px; }
+        }
+    </style>
+</head>
+<body>
+    <!-- 背景Canvas -->
+    <canvas id="bg-canvas"></canvas>
+
+    <!-- Toast -->
+    <div id="toast" class="toast"></div>
+
+    <!-- 主容器 -->
+    <div class="game-container" id="app">
+        <!-- 顶部状态栏 -->
+        <div class="top-bar" id="top-bar" style="display:none;">
+            <div class="stat-item">
+                <i class="fas fa-layer-group"></i>
+                <span>第</span>
+                <span class="stat-value" id="level-val">1</span>
+                <span>关</span>
+            </div>
+            <div class="stat-item">
+                <i class="fas fa-star"></i>
+                <span>分数</span>
+                <span class="stat-value" id="score-val">3</span>
+            </div>
+            <div class="stat-item">
+                <i class="fas fa-font"></i>
+                <span>进度</span>
+                <span class="stat-value" id="progress-val">0/10</span>
+            </div>
+        </div>
+
+        <!-- 游戏区域 -->
+        <div id="game-area">
+            <div class="ground-line"></div>
+
+            <!-- 开始界面 -->
+            <div class="start-screen" id="start-screen">
+                <div class="start-title">拼音消字</div>
+                <div class="start-subtitle">闯关挑战</div>
+                <div class="start-desc">
+                    每关展示十个汉字及其拼音，记忆十秒后汉字将从天而降。<br>
+                    点击下落中的汉字，输入正确的拼音和声调即可消除得分。<br>
+                    若汉字落到底部未消除则扣分，分数归零则挑战失败。
+                </div>
+                <div class="start-buttons">
+                    <button class="btn btn-primary" onclick="startGame()" style="font-size:18px;padding:14px 36px;">
+                        <i class="fas fa-play" style="margin-right:8px;"></i>开始挑战
+                    </button>
+                    <button class="btn btn-secondary" onclick="showRecords()" style="font-size:16px;padding:14px 24px;">
+                        <i class="fas fa-trophy" style="margin-right:6px;"></i>记录
+                    </button>
+                </div>
+            </div>
+
+            <!-- 记忆阶段 -->
+            <div class="memorize-screen" id="memorize-screen">
+                <div class="memo-phase-label">记忆阶段</div>
+                <div class="memo-countdown" id="memo-countdown">10</div>
+                <div class="memo-grid" id="memo-grid"></div>
+                <div class="timer-bar-wrap">
+                    <div class="timer-bar" id="memo-timer-bar" style="width:100%"></div>
+                </div>
+            </div>
+
+            <!-- 下落提示 -->
+            <div class="hint-bar" id="hint-bar" style="display:none;">
+                <i class="fas fa-hand-pointer" style="margin-right:6px;"></i>点击下落的汉字输入拼音
+            </div>
+
+            <!-- 关卡通过覆盖 -->
+            <div class="level-pass-overlay" id="level-pass-overlay">
+                <div class="level-pass-text" id="level-pass-text">通关</div>
+            </div>
+        </div>
+
+        <!-- 结果页面 -->
+        <div class="result-screen" id="result-screen">
+            <div class="result-icon" id="result-icon"></div>
+            <div class="result-title" id="result-title"></div>
+            <div class="result-stats">
+                <div class="result-stat">
+                    <div class="result-stat-value" id="result-score">0</div>
+                    <div class="result-stat-label">最终得分</div>
+                </div>
+                <div class="result-stat">
+                    <div class="result-stat-value" id="result-level">1</div>
+                    <div class="result-stat-label">到达关卡</div>
+                </div>
+            </div>
+            <div style="display:flex;gap:12px;margin-top:24px;">
+                <button class="btn btn-primary" onclick="startGame()" style="font-size:16px;padding:12px 28px;">
+                    <i class="fas fa-redo" style="margin-right:6px;"></i>再来一次
+                </button>
+                <button class="btn btn-secondary" onclick="backToStart()" style="font-size:16px;padding:12px 20px;">
+                    返回首页
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 输入弹窗 -->
+    <div class="modal-overlay" id="input-modal">
+        <div class="modal-box">
+            <div class="modal-title" id="modal-char-title">输入拼音</div>
+            <input type="text" class="pinyin-input" id="pinyin-input"
+                   placeholder="输入无声调拼音" autocomplete="off" autocapitalize="off" spellcheck="false">
+            <div class="tone-buttons" id="tone-buttons">
+                <button class="tone-btn" data-tone="1" onclick="selectTone(1)">
+                    <span class="tone-num">1</span>
+                    <span class="tone-mark">阴平</span>
+                </button>
+                <button class="tone-btn" data-tone="2" onclick="selectTone(2)">
+                    <span class="tone-num">2</span>
+                    <span class="tone-mark">阳平</span>
+                </button>
+                <button class="tone-btn" data-tone="3" onclick="selectTone(3)">
+                    <span class="tone-num">3</span>
+                    <span class="tone-mark">上声</span>
+                </button>
+                <button class="tone-btn" data-tone="4" onclick="selectTone(4)">
+                    <span class="tone-num">4</span>
+                    <span class="tone-mark">去声</span>
+                </button>
+                <button class="tone-btn" data-tone="0" onclick="selectTone(0)">
+                    <span class="tone-num">0</span>
+                    <span class="tone-mark">轻声</span>
+                </button>
+            </div>
+            <div id="input-feedback" style="text-align:center;margin-top:10px;font-size:14px;min-height:20px;"></div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="cancelInput()">取消</button>
+                <button class="btn btn-gold" onclick="submitInput()">确认</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 记录弹窗 -->
+    <div class="modal-overlay" id="records-modal">
+        <div class="modal-box">
+            <div class="modal-title" style="font-size:30px;">挑战记录</div>
+            <div class="records-list" id="records-list"></div>
+            <div class="modal-actions" style="margin-top:20px;">
+                <button class="btn btn-secondary" onclick="closeRecords()" style="flex:1;">关闭</button>
+                <button class="btn btn-primary" onclick="clearRecords()" style="flex:0.6;">清空</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    // ==================== 汉字数据库 ====================
+    // c:汉字 p:无声调拼音 t:声调(1-4,0轻声) pt:带声调拼音
+    const HANZI_DB = [
+        // 数字与基础
+        {c:'一',p:'yi',t:1,pt:'yī'},{c:'二',p:'er',t:4,pt:'èr'},{c:'三',p:'san',t:1,pt:'sān'},
+        {c:'四',p:'si',t:4,pt:'sì'},{c:'五',p:'wu',t:3,pt:'wǔ'},{c:'六',p:'liu',t:4,pt:'liù'},
+        {c:'七',p:'qi',t:1,pt:'qī'},{c:'八',p:'ba',t:1,pt:'bā'},{c:'九',p:'jiu',t:3,pt:'jiǔ'},
+        {c:'十',p:'shi',t:2,pt:'shí'},
+        // 天文地理
+        {c:'天',p:'tian',t:1,pt:'tiān'},{c:'地',p:'di',t:4,pt:'dì'},{c:'日',p:'ri',t:4,pt:'rì'},
+        {c:'月',p:'yue',t:4,pt:'yuè'},{c:'星',p:'xing',t:1,pt:'xīng'},{c:'风',p:'feng',t:1,pt:'fēng'},
+        {c:'雨',p:'yu',t:3,pt:'yǔ'},{c:'云',p:'yun',t:2,pt:'yún'},{c:'雪',p:'xue',t:3,pt:'xuě'},
+        {c:'山',p:'shan',t:1,pt:'shān'},{c:'水',p:'shui',t:3,pt:'shuǐ'},{c:'火',p:'huo',t:3,pt:'huǒ'},
+        {c:'河',p:'he',t:2,pt:'hé'},{c:'海',p:'hai',t:3,pt:'hǎi'},{c:'石',p:'shi',t:2,pt:'shí'},
+        {c:'江',p:'jiang',t:1,pt:'jiāng'},{c:'湖',p:'hu',t:2,pt:'hú'},
+        // 动植物
+        {c:'花',p:'hua',t:1,pt:'huā'},{c:'草',p:'cao',t:3,pt:'cǎo'},{c:'树',p:'shu',t:4,pt:'shù'},
+        {c:'林',p:'lin',t:2,pt:'lín'},{c:'马',p:'ma',t:3,pt:'mǎ'},{c:'牛',p:'niu',t:2,pt:'niú'},
+        {c:'羊',p:'yang',t:2,pt:'yáng'},{c:'鱼',p:'yu',t:2,pt:'yú'},{c:'鸟',p:'niao',t:3,pt:'niǎo'},
+        {c:'狗',p:'gou',t:3,pt:'gǒu'},{c:'猫',p:'mao',t:1,pt:'māo'},{c:'虫',p:'chong',t:2,pt:'chóng'},
+        // 身体
+        {c:'人',p:'ren',t:2,pt:'rén'},{c:'手',p:'shou',t:3,pt:'shǒu'},{c:'口',p:'kou',t:3,pt:'kǒu'},
+        {c:'目',p:'mu',t:4,pt:'mù'},{c:'耳',p:'er',t:3,pt:'ěr'},{c:'足',p:'zu',t:2,pt:'zú'},
+        // 方位
+        {c:'上',p:'shang',t:4,pt:'shàng'},{c:'下',p:'xia',t:4,pt:'xià'},{c:'左',p:'zuo',t:3,pt:'zuǒ'},
+        {c:'右',p:'you',t:4,pt:'yòu'},{c:'东',p:'dong',t:1,pt:'dōng'},{c:'南',p:'nan',t:2,pt:'nán'},
+        {c:'西',p:'xi',t:1,pt:'xī'},{c:'北',p:'bei',t:3,pt:'běi'},{c:'前',p:'qian',t:2,pt:'qián'},
+        {c:'后',p:'hou',t:4,pt:'hòu'},
+        // 季节
+        {c:'春',p:'chun',t:1,pt:'chūn'},{c:'夏',p:'xia',t:4,pt:'xià'},{c:'秋',p:'qiu',t:1,pt:'qiū'},
+        {c:'冬',p:'dong',t:1,pt:'dōng'},
+        // 形容词
+        {c:'大',p:'da',t:4,pt:'dà'},{c:'小',p:'xiao',t:3,pt:'xiǎo'},{c:'高',p:'gao',t:1,pt:'gāo'},
+        {c:'长',p:'chang',t:2,pt:'cháng'},{c:'远',p:'yuan',t:3,pt:'yuǎn'},{c:'近',p:'jin',t:4,pt:'jìn'},
+        {c:'快',p:'kuai',t:4,pt:'kuài'},{c:'慢',p:'man',t:4,pt:'màn'},{c:'多',p:'duo',t:1,pt:'duō'},
+        {c:'红',p:'hong',t:2,pt:'hóng'},{c:'白',p:'bai',t:2,pt:'bái'},{c:'黑',p:'hei',t:1,pt:'hēi'},
+        {c:'美',p:'mei',t:3,pt:'měi'},{c:'好',p:'hao',t:3,pt:'hǎo'},{c:'新',p:'xin',t:1,pt:'xīn'},
+        {c:'古',p:'gu',t:3,pt:'gǔ'},{c:'深',p:'shen',t:1,pt:'shēn'},{c:'轻',p:'qing',t:1,pt:'qīng'},
+        {c:'重',p:'zhong',t:4,pt:'zhòng'},{c:'难',p:'nan',t:2,pt:'nán'},{c:'易',p:'yi',t:4,pt:'yì'},
+        {c:'冷',p:'leng',t:3,pt:'lěng'},{c:'热',p:'re',t:4,pt:'rè'},{c:'甜',p:'tian',t:2,pt:'tián'},
+        {c:'苦',p:'ku',t:3,pt:'kǔ'},{c:'圆',p:'yuan',t:2,pt:'yuán'},{c:'方',p:'fang',t:1,pt:'fāng'},
+        {c:'宽',p:'kuan',t:1,pt:'kuān'},{c:'满',p:'man',t:3,pt:'mǎn'},{c:'空',p:'kong',t:1,pt:'kōng'},
+        {c:'绿',p:'lv',t:4,pt:'lǜ'},{c:'蓝',p:'lan',t:2,pt:'lán'},{c:'黄',p:'huang',t:2,pt:'huáng'},
+        // 动词
+        {c:'笑',p:'xiao',t:4,pt:'xiào'},{c:'哭',p:'ku',t:1,pt:'kū'},{c:'唱',p:'chang',t:4,pt:'chàng'},
+        {c:'跑',p:'pao',t:3,pt:'pǎo'},{c:'走',p:'zou',t:3,pt:'zǒu'},{c:'飞',p:'fei',t:1,pt:'fēi'},
+        {c:'看',p:'kan',t:4,pt:'kàn'},{c:'听',p:'ting',t:1,pt:'tīng'},{c:'说',p:'shuo',t:1,pt:'shuō'},
+        {c:'读',p:'du',t:2,pt:'dú'},{c:'写',p:'xie',t:3,pt:'xiě'},{c:'学',p:'xue',t:2,pt:'xué'},
+        {c:'想',p:'xiang',t:3,pt:'xiǎng'},{c:'问',p:'wen',t:4,pt:'wèn'},{c:'知',p:'zhi',t:1,pt:'zhī'},
+        {c:'爱',p:'ai',t:4,pt:'ài'},{c:'坐',p:'zuo',t:4,pt:'zuò'},{c:'立',p:'li',t:4,pt:'lì'},
+        {c:'画',p:'hua',t:4,pt:'huà'},{c:'答',p:'da',t:2,pt:'dá'},{c:'歌',p:'ge',t:1,pt:'gē'},
+        {c:'舞',p:'wu',t:3,pt:'wǔ'},{c:'生',p:'sheng',t:1,pt:'shēng'},{c:'发',p:'fa',t:1,pt:'fā'},
+        {c:'造',p:'zao',t:4,pt:'zào'},{c:'进',p:'jin',t:4,pt:'jìn'},{c:'动',p:'dong',t:4,pt:'dòng'},
+        // 名词
+        {c:'国',p:'guo',t:2,pt:'guó'},{c:'家',p:'jia',t:1,pt:'jiā'},{c:'校',p:'xiao',t:4,pt:'xiào'},
+        {c:'朋',p:'peng',t:2,pt:'péng'},{c:'友',p:'you',t:3,pt:'yǒu'},{c:'父',p:'fu',t:4,pt:'fù'},
+        {c:'母',p:'mu',t:3,pt:'mǔ'},{c:'师',p:'shi',t:1,pt:'shī'},{c:'书',p:'shu',t:1,pt:'shū'},
+        {c:'笔',p:'bi',t:3,pt:'bǐ'},{c:'纸',p:'zhi',t:3,pt:'zhǐ'},{c:'门',p:'men',t:2,pt:'mén'},
+        {c:'路',p:'lu',t:4,pt:'lù'},{c:'桥',p:'qiao',t:2,pt:'qiáo'},{c:'船',p:'chuan',t:2,pt:'chuán'},
+        {c:'车',p:'che',t:1,pt:'chē'},{c:'光',p:'guang',t:1,pt:'guāng'},{c:'力',p:'li',t:4,pt:'lì'},
+        {c:'梦',p:'meng',t:4,pt:'mèng'},{c:'志',p:'zhi',t:4,pt:'zhì'},{c:'信',p:'xin',t:4,pt:'xìn'},
+        {c:'窗',p:'chuang',t:1,pt:'chuāng'},{c:'桌',p:'zhuo',t:1,pt:'zhuō'},
+        // 时间
+        {c:'早',p:'zao',t:3,pt:'zǎo'},{c:'晚',p:'wan',t:3,pt:'wǎn'},{c:'时',p:'shi',t:2,pt:'shí'},
+        {c:'年',p:'nian',t:2,pt:'nián'},{c:'今',p:'jin',t:1,pt:'jīn'},
+        // 品格
+        {c:'勇',p:'yong',t:3,pt:'yǒng'},{c:'善',p:'shan',t:4,pt:'shàn'},{c:'智',p:'zhi',t:4,pt:'zhì'},
+        {c:'坚',p:'jian',t:1,pt:'jiān'},{c:'毅',p:'yi',t:4,pt:'yì'},{c:'诚',p:'cheng',t:2,pt:'chéng'},
+        {c:'恩',p:'en',t:1,pt:'ēn'},{c:'德',p:'de',t:2,pt:'dé'},{c:'忠',p:'zhong',t:1,pt:'zhōng'},
+        {c:'敬',p:'jing',t:4,pt:'jìng'},
+        // 其他
+        {c:'安',p:'an',t:1,pt:'ān'},{c:'平',p:'ping',t:2,pt:'píng'},{c:'和',p:'he',t:2,pt:'hé'},
+        {c:'明',p:'ming',t:2,pt:'míng'},{c:'静',p:'jing',t:4,pt:'jìng'},{c:'活',p:'huo',t:2,pt:'huó'},
+        {c:'老',p:'lao',t:3,pt:'lǎo'},{c:'田',p:'tian',t:2,pt:'tián'},{c:'土',p:'tu',t:3,pt:'tǔ'},
+        {c:'金',p:'jin',t:1,pt:'jīn'},{c:'银',p:'yin',t:2,pt:'yín'},{c:'干',p:'gan',t:1,pt:'gān'},
+        {c:'净',p:'jing',t:4,pt:'jìng'},{c:'正',p:'zheng',t:4,pt:'zhèng'},{c:'直',p:'zhi',t:2,pt:'zhí'},
+        {c:'酸',p:'suan',t:1,pt:'suān'},{c:'辣',p:'la',t:4,pt:'là'},{c:'厚',p:'hou',t:4,pt:'hòu'},
+        {c:'薄',p:'bao',t:2,pt:'báo'},{c:'窄',p:'zhai',t:3,pt:'zhǎi'},
+    ];
+
+    // ==================== 游戏状态 ====================
+    let state = 'start'; // start, memorize, playing, input, gameover, levelpass
+    let level = 1;
+    let score = 3;
+    let currentChars = [];      // 当前关卡10个汉字
+    let fallingQueue = [];      // 等待下落的汉字队列
+    let progressIndex = 0;      // 当前处理到第几个
+    let currentFalling = null;  // 当前下落的汉字数据
+    let fallingEl = null;       // 当前下落DOM元素
+    let fallAnimId = null;      // 动画帧ID
+    let fallStartTime = null;
+    let fallPauseElapsed = 0;
+    let fallPauseStart = null;
+    let selectedTone = null;    // 用户选择的声调
+    let userIP = '未知';
+    let memoTimerId = null;
+
+    // ==================== 工具函数 ====================
+    // 随机打乱数组
+    function shuffle(arr) {
+        const a = [...arr];
+        for (let i = a.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [a[i], a[j]] = [a[j], a[i]];
+        }
+        return a;
+    }
+
+    // 从数组中随机选n个不重复元素
+    function randomPick(arr, n) {
+        return shuffle(arr).slice(0, n);
+    }
+
+    // 显示Toast
+    function showToast(msg, type = 'info', duration = 1500) {
+        const el = document.getElementById('toast');
+        el.textContent = msg;
+        el.className = 'toast ' + type;
+        requestAnimationFrame(() => { el.classList.add('show'); });
+        clearTimeout(el._timer);
+        el._timer = setTimeout(() => { el.classList.remove('show'); }, duration);
+    }
+
+    // 分数动画
+    function bumpScore() {
+        const el = document.getElementById('score-val');
+        el.classList.add('bump');
+        setTimeout(() => el.classList.remove('bump'), 350);
+    }
+
+    // 更新UI
+    function updateUI() {
+        document.getElementById('level-val').textContent = level;
+        document.getElementById('score-val').textContent = score;
+        document.getElementById('progress-val').textContent = progressIndex + '/10';
+    }
+
+    // ==================== 背景粒子 ====================
+    const bgCanvas = document.getElementById('bg-canvas');
+    const bgCtx = bgCanvas.getContext('2d');
+    let inkDrops = [];
+
+    function resizeBgCanvas() {
+        bgCanvas.width = window.innerWidth;
+        bgCanvas.height = window.innerHeight;
+    }
+    resizeBgCanvas();
+    window.addEventListener('resize', resizeBgCanvas);
+
+    class InkDrop {
+        constructor() { this.reset(); }
+        reset() {
+            this.x = Math.random() * bgCanvas.width;
+            this.y = Math.random() * bgCanvas.height - bgCanvas.height;
+            this.size = Math.random() * 2.5 + 0.5;
+            this.speed = Math.random() * 0.4 + 0.15;
+            this.drift = (Math.random() - 0.5) * 0.3;
+            this.opacity = Math.random() * 0.2 + 0.05;
+        }
+        update() {
+            this.y += this.speed;
+            this.x += this.drift + Math.sin(this.y * 0.008) * 0.15;
+            if (this.y > bgCanvas.height + 10) this.reset();
+        }
+        draw(ctx) {
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, Math.max(0.5, this.size), 0, Math.PI * 2);
+            ctx.fillStyle = `rgba(212, 167, 69, ${this.opacity})`;
+            ctx.fill();
+        }
+    }
+
+    for (let i = 0; i < 80; i++) {
+        const d = new InkDrop();
+        d.y = Math.random() * bgCanvas.height; // 初始散布
+        inkDrops.push(d);
+    }
+
+    function animateBg() {
+        bgCtx.clearRect(0, 0, bgCanvas.width, bgCanvas.height);
+        for (const d of inkDrops) {
+            d.update();
+            d.draw(bgCtx);
+        }
+        requestAnimationFrame(animateBg);
+    }
+    animateBg();
+
+    // ==================== 爆裂粒子效果 ====================
+    function burstAt(x, y, color) {
+        const area = document.getElementById('game-area');
+        const count = 12;
+        for (let i = 0; i < count; i++) {
+            const p = document.createElement('div');
+            p.className = 'burst-particle';
+            p.style.left = x + 'px';
+            p.style.top = y + 'px';
+            p.style.background = color;
+            p.style.width = (Math.random() * 6 + 4) + 'px';
+            p.style.height = p.style.width;
+            area.appendChild(p);
+            const angle = (Math.PI * 2 / count) * i + Math.random() * 0.5;
+            const dist = Math.random() * 60 + 30;
+            const dx = Math.cos(angle) * dist;
+            const dy = Math.sin(angle) * dist;
+            p.animate([
+                { transform: 'translate(0,0) scale(1)', opacity: 1 },
+                { transform: `translate(${dx}px,${dy}px) scale(0)`, opacity: 0 }
+            ], { duration: 600, easing: 'ease-out' });
+            setTimeout(() => p.remove(), 600);
+        }
+    }
+
+    // ==================== IP获取 ====================
+    async function fetchIP() {
+        try {
+            const resp = await fetch('https://api.ipify.org?format=json');
+            const data = await resp.json();
+            userIP = data.ip || '未知';
+        } catch (e) {
+            userIP = '未知';
+        }
+    }
+    fetchIP();
+
+    // ==================== 记录管理 ====================
+    function saveRecord(scoreVal, levelVal, success) {
+        const records = JSON.parse(localStorage.getItem('pinyin_records') || '[]');
+        records.unshift({
+            ip: userIP,
+            score: scoreVal,
+            level: levelVal,
+            success: success,
+            time: new Date().toLocaleString('zh-CN')
+        });
+        if (records.length > 50) records.length = 50;
+        localStorage.setItem('pinyin_records', JSON.stringify(records));
+    }
+
+    function getRecords() {
+        return JSON.parse(localStorage.getItem('pinyin_records') || '[]');
+    }
+
+    function showRecords() {
+        const records = getRecords();
+        const list = document.getElementById('records-list');
+        if (records.length === 0) {
+            list.innerHTML = '<div style="text-align:center;color:var(--muted);padding:30px;">暂无挑战记录</div>';
+        } else {
+            list.innerHTML = records.map(r => `
+                <div class="record-row">
+                    <span class="record-ip">${r.ip}</span>
+                    <span class="record-level">第${r.level}关</span>
+                    <span class="record-score">${r.score}分</span>
+                    <span style="color:${r.success ? 'var(--success)' : 'var(--fail)'};font-weight:700;font-size:12px;">
+                        ${r.success ? '通关' : '失败'}
+                    </span>
+                    <span class="record-time">${r.time}</span>
+                </div>
+            `).join('');
+        }
+        document.getElementById('records-modal').classList.add('active');
+    }
+
+    function closeRecords() {
+        document.getElementById('records-modal').classList.remove('active');
+    }
+
+    function clearRecords() {
+        localStorage.removeItem('pinyin_records');
+        showRecords();
+        showToast('记录已清空', 'info');
+    }
+
+    // ==================== 游戏核心 ====================
+    function startGame() {
+        level = 1;
+        score = 3;
+        progressIndex = 0;
+        state = 'memorize';
+
+        document.getElementById('start-screen').style.display = 'none';
+        document.getElementById('result-screen').classList.remove('active');
+        document.getElementById('top-bar').style.display = 'flex';
+        updateUI();
+
+        startLevel();
+    }
+
+    function startLevel() {
+        progressIndex = 0;
+        // 从汉字库随机选10个
+        currentChars = randomPick(HANZI_DB, 10);
+        // 打乱下落顺序
+        fallingQueue = shuffle([...currentChars]);
+        updateUI();
+        showMemorizePhase();
+    }
+
+    // ========= 记忆阶段 =========
+    function showMemorizePhase() {
+        state = 'memorize';
+        const screen = document.getElementById('memorize-screen');
+        const grid = document.getElementById('memo-grid');
+        screen.classList.add('active');
+
+        // 生成卡片
+        grid.innerHTML = currentChars.map((ch, i) => `
+            <div class="memo-card" style="transition-delay:${i * 80}ms">
+                <div class="pinyin">${ch.pt}</div>
+                <div class="hanzi">${ch.c}</div>
+            </div>
+        `).join('');
+
+        // 延迟显示卡片
+        setTimeout(() => {
+            grid.querySelectorAll('.memo-card').forEach(c => c.classList.add('show'));
+        }, 100);
+
+        // 10秒倒计时
+        let countdown = 10;
+        const countdownEl = document.getElementById('memo-countdown');
+        const timerBar = document.getElementById('memo-timer-bar');
+        countdownEl.textContent = countdown;
+        timerBar.style.width = '100%';
+
+        const startTime = Date.now();
+        const totalMs = 10000;
+
+        function tickMemo() {
+            const elapsed = Date.now() - startTime;
+            const remaining = Math.max(0, totalMs - elapsed);
+            const sec = Math.ceil(remaining / 1000);
+            countdownEl.textContent = sec;
+            timerBar.style.width = (remaining / totalMs * 100) + '%';
+
+            if (remaining <= 0) {
+                endMemorizePhase();
+            } else {
+                memoTimerId = requestAnimationFrame(tickMemo);
+            }
+        }
+        memoTimerId = requestAnimationFrame(tickMemo);
+    }
+
+    function endMemorizePhase() {
+        cancelAnimationFrame(memoTimerId);
+        const screen = document.getElementById('memorize-screen');
+        // 卡片消失动画
+        const cards = screen.querySelectorAll('.memo-card');
+        cards.forEach((c, i) => {
+            setTimeout(() => {
+                c.style.opacity = '0';
+                c.style.transform = 'translateY(-20px) scale(0.8)';
+            }, i * 50);
+        });
+
+        setTimeout(() => {
+            screen.classList.remove('active');
+            startFallingPhase();
+        }, 600);
+    }
+
+    // ========= 下落阶段 =========
+    function startFallingPhase() {
+        state = 'playing';
+        document.getElementById('hint-bar').style.display = 'block';
+        nextFalling();
+    }
+
+    function nextFalling() {
+        if (fallingQueue.length === 0) {
+            // 本关通过
+            levelPass();
+            return;
+        }
+        currentFalling = fallingQueue.shift();
+        progressIndex = 10 - fallingQueue.length;
+        updateUI();
+        createFallingChar();
+    }
+
+    function createFallingChar() {
+        const area = document.getElementById('game-area');
+        // 移除旧元素
+        if (fallingEl && fallingEl.parentNode) fallingEl.remove();
+
+        fallingEl = document.createElement('div');
+        fallingEl.className = 'falling-char pulsing';
+        fallingEl.textContent = currentFalling.c;
+
+        // 随机水平位置
+        const areaW = area.clientWidth;
+        const charW = 80;
+        const x = Math.random() * (areaW - charW - 40) + 20;
+        fallingEl.style.left = x + 'px';
+        fallingEl.style.top = '-80px';
+
+        // 点击事件
+        fallingEl.addEventListener('click', onCharClick);
+        area.appendChild(fallingEl);
+
+        // 开始下落动画
+        fallStartTime = performance.now();
+        fallPauseElapsed = 0;
+        fallPauseStart = null;
+        animateFall();
+    }
+
+    function animateFall() {
+        if (state === 'gameover' || state === 'levelpass') return;
+        if (!fallingEl || !fallingEl.parentNode) return;
+
+        // 如果暂停中，不更新位置
+        if (state === 'input') {
+            fallAnimId = requestAnimationFrame(animateFall);
+            return;
+        }
+
+        const now = performance.now();
+        const elapsed = (now - fallStartTime - fallPauseElapsed) / 1000;
+        const area = document.getElementById('game-area');
+        const areaH = area.clientHeight;
+        const fallDuration = 10; // 10秒
+        const progress = Math.min(elapsed / fallDuration, 1);
+        const maxY = areaH - 10;
+        const y = -80 + progress * (maxY + 80);
+
+        fallingEl.style.top = y + 'px';
+
+        if (progress >= 1) {
+            // 掉落到底部
+            onCharMissed();
+            return;
+        }
+
+        fallAnimId = requestAnimationFrame(animateFall);
+    }
+
+    function onCharClick() {
+        if (state !== 'playing' || !currentFalling) return;
+
+        // 暂停下落
+        state = 'input';
+        fallPauseStart = performance.now();
+        fallingEl.classList.remove('pulsing');
+
+        // 弹出输入框
+        showInputModal();
+    }
+
+    function onCharMissed() {
+        cancelAnimationFrame(fallAnimId);
+        state = 'playing';
+
+        // 底部闪烁效果
+        if (fallingEl) {
+            fallingEl.style.color = 'var(--fail)';
+            fallingEl.style.transform = 'scale(1.3)';
+            const rect = fallingEl.getBoundingClientRect();
+            const areaRect = document.getElementById('game-area').getBoundingClientRect();
+            burstAt(rect.left - areaRect.left + 40, rect.top - areaRect.top + 40, '#e74c3c');
+        }
+
+        score--;
+        bumpScore();
+        updateUI();
+        showToast('-1', 'error', 1000);
+
+        setTimeout(() => {
+            if (fallingEl && fallingEl.parentNode) fallingEl.remove();
+            fallingEl = null;
+
+            if (score <= 0) {
+                gameOver(false);
+            } else {
+                nextFalling();
+            }
+        }, 800);
+    }
+
+    // ========= 输入弹窗 =========
+    function showInputModal() {
+        selectedTone = null;
+        document.getElementById('pinyin-input').value = '';
+        document.getElementById('input-feedback').textContent = '';
+        document.getElementById('modal-char-title').textContent = currentFalling.c;
+        document.querySelectorAll('.tone-btn').forEach(b => b.classList.remove('selected'));
+        document.getElementById('input-modal').classList.add('active');
+
+        setTimeout(() => document.getElementById('pinyin-input').focus(), 100);
+    }
+
+    function selectTone(t) {
+        selectedTone = t;
+        document.querySelectorAll('.tone-btn').forEach(b => {
+            b.classList.toggle('selected', parseInt(b.dataset.tone) === t);
+        });
+    }
+
+    function cancelInput() {
+        document.getElementById('input-modal').classList.remove('active');
+        // 恢复下落
+        state = 'playing';
+        if (fallPauseStart) {
+            fallPauseElapsed += performance.now() - fallPauseStart;
+        }
+        if (fallingEl) fallingEl.classList.add('pulsing');
+        animateFall();
+    }
+
+    function submitInput() {
+        const pinyinVal = document.getElementById('pinyin-input').value.trim().toLowerCase();
+        const feedbackEl = document.getElementById('input-feedback');
+
+        if (!pinyinVal) {
+            feedbackEl.textContent = '请输入拼音';
+            feedbackEl.style.color = 'var(--fail)';
+            return;
+        }
+        if (selectedTone === null) {
+            feedbackEl.textContent = '请选择声调';
+            feedbackEl.style.color = 'var(--fail)';
+            return;
+        }
+
+        // 比对拼音和声调
+        // 将用户输入的v转换为ü来比对
+        const normalizedInput = pinyinVal.replace(/v/g, 'ü');
+        const correctPinyin = currentFalling.p.toLowerCase();
+        const correctTone = currentFalling.t;
+
+        if (normalizedInput === correctPinyin && selectedTone === correctTone) {
+            // 正确
+            onCorrectInput();
+        } else {
+            // 错误
+            feedbackEl.textContent = '拼音或声调不正确，请再试';
+            feedbackEl.style.color = 'var(--fail)';
+            // 不关闭弹窗，让用户重新输入
+            // 但给一个视觉抖动
+            const box = document.querySelector('.modal-box');
+            box.style.animation = 'none';
+            box.offsetHeight; // 触发reflow
+            box.style.animation = 'shake 0.4s ease';
+        }
+    }
+
+    // 抖动动画
+    const shakeStyle = document.createElement('style');
+    shakeStyle.textContent = `
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            20% { transform: translateX(-8px); }
+            40% { transform: translateX(8px); }
+            60% { transform: translateX(-6px); }
+            80% { transform: translateX(6px); }
+        }
+    `;
+    document.head.appendChild(shakeStyle);
+
+    function onCorrectInput() {
+        document.getElementById('input-modal').classList.remove('active');
+        cancelAnimationFrame(fallAnimId);
+
+        // 爆裂效果
+        if (fallingEl) {
+            const rect = fallingEl.getBoundingClientRect();
+            const areaRect = document.getElementById('game-area').getBoundingClientRect();
+            burstAt(rect.left - areaRect.left + 40, rect.top - areaRect.top + 40, '#d4a745');
+            fallingEl.style.color = 'var(--accent2)';
+            fallingEl.style.transform = 'scale(1.4)';
+            fallingEl.style.opacity = '0.6';
+        }
+
+        score++;
+        bumpScore();
+        updateUI();
+        showToast('+1', 'success', 1000);
+
+        // 播放正确音效
+        playSound(440, 0.15, 'sine');
+
+        setTimeout(() => {
+            if (fallingEl && fallingEl.parentNode) fallingEl.remove();
+            fallingEl = null;
+            currentFalling = null;
+            state = 'playing';
+            nextFalling();
+        }, 600);
+    }
+
+    // 键盘回车提交
+    document.getElementById('pinyin-input').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            submitInput();
+        }
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            cancelInput();
+        }
+    });
+
+    // ========= 关卡通过 =========
+    function levelPass() {
+        state = 'levelpass';
+        document.getElementById('hint-bar').style.display = 'none';
+        cancelAnimationFrame(fallAnimId);
+
+        const overlay = document.getElementById('level-pass-overlay');
+        const text = document.getElementById('level-pass-text');
+        text.textContent = `第${level}关通过`;
+        overlay.classList.add('active');
+
+        playSound(523, 0.1, 'sine');
+        setTimeout(() => playSound(659, 0.1, 'sine'), 150);
+        setTimeout(() => playSound(784, 0.15, 'sine'), 300);
+
+        setTimeout(() => {
+            overlay.classList.remove('active');
+            level++;
+            updateUI();
+            startLevel();
+        }, 2000);
+    }
+
+    // ========= 游戏结束 =========
+    function gameOver(success) {
+        state = 'gameover';
+        cancelAnimationFrame(fallAnimId);
+        document.getElementById('hint-bar').style.display = 'none';
+
+        if (fallingEl && fallingEl.parentNode) fallingEl.remove();
+        fallingEl = null;
+
+        // 保存记录
+        saveRecord(score, level, success);
+
+        // 显示结果
+        const screen = document.getElementById('result-screen');
+        const iconEl = document.getElementById('result-icon');
+        const titleEl = document.getElementById('result-title');
+
+        if (success) {
+            iconEl.innerHTML = '<i class="fas fa-trophy" style="color:var(--accent2);"></i>';
+            titleEl.textContent = '挑战成功';
+            titleEl.style.color = 'var(--accent2)';
+        } else {
+            iconEl.innerHTML = '<i class="fas fa-heart-crack" style="color:var(--accent);"></i>';
+            titleEl.textContent = '挑战失败';
+            titleEl.style.color = 'var(--accent)';
+        }
+
+        document.getElementById('result-score').textContent = score;
+        document.getElementById('result-level').textContent = level;
+        screen.classList.add('active');
+
+        // 音效
+        if (!success) {
+            playSound(330, 0.15, 'sawtooth');
+            setTimeout(() => playSound(262, 0.2, 'sawtooth'), 200);
+        }
+    }
+
+    function backToStart() {
+        document.getElementById('result-screen').classList.remove('active');
+        document.getElementById('top-bar').style.display = 'none';
+        document.getElementById('start-screen').style.display = 'flex';
+        state = 'start';
+    }
+
+    // ========= 简单音效 =========
+    let audioCtx = null;
+    function playSound(freq, dur, type) {
+        try {
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = type || 'sine';
+            osc.frequency.value = freq;
+            gain.gain.setValueAtTime(0.12, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + dur);
+        } catch (e) { /* 静默失败 */ }
+    }
+
+    // ========= 键盘快捷键：数字键选择声调 =========
+    document.addEventListener('keydown', (e) => {
+        if (state === 'input') {
+            const key = e.key;
+            if (key >= '0' && key <= '4') {
+                const t = parseInt(key);
+                selectTone(t);
+            }
+        }
+    });
+
+    // ========= 页面加载完成 =========
+    // 开始页面已经默认显示
+    </script>
+</body>
+</html>
