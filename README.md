@@ -1,2 +1,2 @@
 # My-Educational-Games
-Children's educational games
+Just Children's educational games
